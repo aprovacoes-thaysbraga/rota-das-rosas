@@ -154,6 +154,11 @@ summary.list-title .count{color:var(--muted);font-weight:400;letter-spacing:0;te
 .btn.sched[aria-pressed="true"]{background:var(--sched);color:#fff}
 .btn.post{border-color:var(--posted);color:var(--posted)}
 .btn.post[aria-pressed="true"]{background:var(--posted);color:#fff}
+.agenda{margin-top:12px}
+.agenda-row{display:flex;gap:8px;margin-top:6px}
+.agenda input{flex:1;min-width:0;height:44px;padding:0 12px;border-radius:12px;border:1.5px solid var(--line);background:transparent;color:inherit;font:inherit;font-size:14px}
+.agenda input:focus{outline:none;border-color:var(--sched)}
+.agenda .btn{flex:none;padding:0 16px}
 .fix{margin-top:14px}
 .fix[hidden]{display:none}
 .fix textarea{width:100%;min-height:104px;margin-top:6px;padding:12px 14px;border:1.5px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink);font:inherit;line-height:1.5;resize:vertical}
@@ -278,6 +283,13 @@ summary.list-title .count{color:var(--muted);font-weight:400;letter-spacing:0;te
         <div class="dec-btns">
           <button class="btn sched" id="bSched" aria-pressed="false">Agendado</button>
           <button class="btn post" id="bPost" aria-pressed="false">Postado</button>
+        </div>
+        <div class="agenda">
+          <label class="label" for="schedAt">Data e hora do agendamento</label>
+          <div class="agenda-row">
+            <input type="datetime-local" id="schedAt">
+            <button class="btn sched" id="bSchedSave" disabled>Salvar</button>
+          </div>
         </div>
         <p class="note" id="postedAt"></p>
       </section>
@@ -446,7 +458,24 @@ function showPost(i){
   $("#bPost").textContent = em ? "Postado ✓" : "Postado";
   $("#bSched").textContent = ag ? "Agendado ✓" : "Agendado";
   $("#postedAt").textContent = em ? "Marcado como postado em "+new Date(em).toLocaleDateString("pt-BR")+". Toque de novo para desmarcar."
-    : ag ? "Marcado como agendado em "+new Date(ag).toLocaleDateString("pt-BR")+". Toque de novo para desmarcar." : "";
+    : ag ? "Agendado para "+dataHora(ag)+". Toque em Agendado de novo para desmarcar." : "";
+  if(document.activeElement !== $("#schedAt")){
+    $("#schedAt").value = ag ? paraInput(ag) : "";
+    $("#bSchedSave").disabled = true;
+  }
+}
+function dataHora(ms){
+  const d = new Date(ms);
+  return d.toLocaleDateString("pt-BR",{weekday:"short",day:"2-digit",month:"2-digit"})+" às "
+    + d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+}
+function paraInput(ms){
+  const d = new Date(ms), z = n=>String(n).padStart(2,"0");
+  return d.getFullYear()+"-"+z(d.getMonth()+1)+"-"+z(d.getDate())+"T"+z(d.getHours())+":"+z(d.getMinutes());
+}
+function lerInput(){
+  const v = $("#schedAt").value; if(!v) return null;
+  const ms = new Date(v).getTime(); return isNaN(ms) ? null : ms;
 }
 
 async function salvarDecisao(i, status, nota){
@@ -498,17 +527,32 @@ async function marcarPub(qual){
   const mapa = qual==="postado" ? POSTADO : AGENDADO;
   const outroMapa = qual==="postado" ? AGENDADO : POSTADO;
   const ligar = !mapa[i];
-  if(ligar){ mapa[i] = Date.now(); delete outroMapa[i]; } else { delete mapa[i]; }
+  if(ligar){ mapa[i] = (qual==="agendado" && lerInput()) || Date.now(); delete outroMapa[i]; } else { delete mapa[i]; }
   paintStatus(); showPost(i);
+  await gravarPub(i);
+}
+async function salvarHorario(){
+  const i = cur, ms = lerInput();
+  if(!ms) return;
+  AGENDADO[i] = ms; delete POSTADO[i];
+  paintStatus(); showPost(i);
+  await gravarPub(i);
+}
+async function gravarPub(i){
   try{
     await db.collection("publicacao").doc(String(i)).set({
       postado: POSTADO[i]||null,
       agendado: AGENDADO[i]||null, por: MEU_ID, em: Date.now()
     });
-  }catch(e){}
+  }catch(e){ if(i===cur) $("#postedAt").textContent = "Não deu para salvar agora. Tente de novo."; }
 }
 $("#bPost").addEventListener("click", ()=>marcarPub("postado"));
 $("#bSched").addEventListener("click", ()=>marcarPub("agendado"));
+$("#schedAt").addEventListener("input", ()=>{
+  const ms = lerInput();
+  $("#bSchedSave").disabled = !ms || ms === AGENDADO[cur];
+});
+$("#bSchedSave").addEventListener("click", salvarHorario);
 
 /* ---- janela do post ---- */
 let cur = -1, idx = 0, opener = null, vTimer = null;
