@@ -99,6 +99,10 @@ summary.list-title .count{color:var(--muted);font-weight:400;letter-spacing:0;te
 .st[data-s="ok"]::after{content:"Aprovado"}
 .st[data-s="ajuste"]::after{content:"Ajuste pedido"}
 .st[data-s="agendado"]::after{content:"Agendado"}
+.st[data-s="agendado"][data-t]:not([data-t=""]){white-space:nowrap;max-width:calc(100% - 16px);overflow:hidden;text-overflow:ellipsis}
+.st[data-s="agendado"][data-t]:not([data-t=""])::after{content:attr(data-t)}
+.schedPub{margin:-4px 0 14px;font-size:13px;font-weight:600;color:var(--sched)}
+.schedPub[hidden]{display:none}
 .st[data-s="postado"]::after{content:"Postado"}
 .thumb .st{left:auto;right:3px;bottom:3px;width:12px;height:12px;padding:0;border-radius:50%;border:2px solid var(--side)}
 .thumb .st::after{content:""!important}
@@ -257,6 +261,7 @@ summary.list-title .count{color:var(--muted);font-weight:400;letter-spacing:0;te
     <div class="info">
       <p class="meta" id="mMeta"></p>
       <h2 id="mTitle"></h2>
+      <p class="schedPub" id="mSched" hidden></p>
       <p class="label">Legenda</p>
       <p class="cap" id="mCap"></p>
       <section class="dec" aria-labelledby="decTitle">
@@ -421,15 +426,16 @@ let pronto = false;
 function paintStatus(){
   POSTS.forEach((p,i)=>{
     if(p.placeholder) return;
-    const s = POSTADO[i] ? "postado" : AGENDADO[i] ? "agendado" : ((ESTADO[i] && ESTADO[i].status) || "");
-    document.querySelectorAll(`[data-i="${i}"] .st`).forEach(el=>{ el.dataset.s = s; });
+    const s = postadoEm(i) ? "postado" : agendadoAtivo(i) ? "agendado" : ((ESTADO[i] && ESTADO[i].status) || "");
+    const t = s==="agendado" && horaDefinida(AGENDADO[i]) ? dataHoraCurta(AGENDADO[i]) : "";
+    document.querySelectorAll(`[data-i="${i}"] .st`).forEach(el=>{ el.dataset.s = s; el.dataset.t = t; });
   });
   const total = POSTS.filter(p=>!p.placeholder).length;
   const v = Object.values(ESTADO);
   const ok = v.filter(x=>x.status==="ok").length, aj = v.filter(x=>x.status==="ajuste").length;
   const falta = total - ok - aj;
-  const np = Object.keys(POSTADO).filter(k=>POSTADO[k]).length;
-  const na = Object.keys(AGENDADO).filter(k=>AGENDADO[k]).length;
+  const np = POSTS.filter((p,i)=>!p.placeholder && postadoEm(i)).length;
+  const na = POSTS.filter((p,i)=>!p.placeholder && agendadoAtivo(i)).length;
   $("#summary").textContent = pronto
     ? (falta===0 ? "Tudo respondido: "+ok+" aprovados, "+aj+" com ajuste." : ok+" aprovados · "+aj+" com ajuste · "+falta+" sem resposta")
       + " · "+na+" agendados · "+np+" de "+total+" postados"
@@ -451,18 +457,32 @@ function showDec(i){
   note(e.status ? "Resposta salva. Você pode mudar quando quiser." : "");
 }
 function note(t, err){ const n = $("#decNote"); n.textContent = t; n.classList.toggle("err", !!err); }
+/* passou o horário agendado: o post conta como postado (sem precisar marcar) */
+function postadoAuto(i){ const ag = AGENDADO[i]; return !POSTADO[i] && horaDefinida(ag) && ag <= Date.now(); }
+function postadoEm(i){ return POSTADO[i] || (postadoAuto(i) ? AGENDADO[i] : null); }
+function agendadoAtivo(i){ return AGENDADO[i] && !postadoEm(i) ? AGENDADO[i] : null; }
 function showPost(i){
-  const em = POSTADO[i], ag = AGENDADO[i];
+  const em = postadoEm(i), ag = agendadoAtivo(i);
+  const publico = !em && horaDefinida(ag);
+  $("#mSched").hidden = !publico;
+  $("#mSched").textContent = publico ? "Agendado para "+dataHora(ag) : "";
   $("#bPost").setAttribute("aria-pressed", String(!!em));
   $("#bSched").setAttribute("aria-pressed", String(!!ag));
   $("#bPost").textContent = em ? "Postado ✓" : "Postado";
   $("#bSched").textContent = ag ? "Agendado ✓" : "Agendado";
-  $("#postedAt").textContent = em ? "Marcado como postado em "+new Date(em).toLocaleDateString("pt-BR")+". Toque de novo para desmarcar."
+  $("#postedAt").textContent = postadoAuto(i) ? "Postado automaticamente em "+dataHora(em)+", no horário agendado. Toque em Postado para desmarcar."
+    : em ? "Marcado como postado em "+new Date(em).toLocaleDateString("pt-BR")+". Toque de novo para desmarcar."
     : ag ? "Agendado para "+dataHora(ag)+". Toque em Agendado de novo para desmarcar." : "";
   if(document.activeElement !== $("#schedAt")){
-    $("#schedAt").value = ag ? paraInput(ag) : "";
+    $("#schedAt").value = AGENDADO[i] ? paraInput(AGENDADO[i]) : "";
     $("#bSchedSave").disabled = true;
   }
+}
+/* horário escolhido no campo tem segundos zerados; marcações antigas (clique) não */
+function horaDefinida(ms){ return !!ms && ms % 60000 === 0; }
+function dataHoraCurta(ms){
+  const d = new Date(ms), z = n=>String(n).padStart(2,"0");
+  return z(d.getDate())+"/"+z(d.getMonth()+1)+" · "+d.getHours()+"h"+z(d.getMinutes());
 }
 function dataHora(ms){
   const d = new Date(ms);
@@ -524,10 +544,13 @@ $("#bSend").addEventListener("click", ()=>{
 
 async function marcarPub(qual){
   const i = cur;
-  const mapa = qual==="postado" ? POSTADO : AGENDADO;
-  const outroMapa = qual==="postado" ? AGENDADO : POSTADO;
-  const ligar = !mapa[i];
-  if(ligar){ mapa[i] = (qual==="agendado" && lerInput()) || Date.now(); delete outroMapa[i]; } else { delete mapa[i]; }
+  if(qual==="postado"){
+    if(postadoEm(i)){ delete POSTADO[i]; delete AGENDADO[i]; }
+    else { POSTADO[i] = Date.now(); delete AGENDADO[i]; }
+  } else {
+    if(agendadoAtivo(i)) delete AGENDADO[i];
+    else { AGENDADO[i] = lerInput() || Date.now(); delete POSTADO[i]; }
+  }
   paintStatus(); showPost(i);
   await gravarPub(i);
 }
@@ -553,6 +576,7 @@ $("#schedAt").addEventListener("input", ()=>{
   $("#bSchedSave").disabled = !ms || ms === AGENDADO[cur];
 });
 $("#bSchedSave").addEventListener("click", salvarHorario);
+setInterval(()=>{ if(!pronto) return; paintStatus(); if(cur>=0 && !$("#modal").hidden) showPost(cur); }, 30000);
 
 /* ---- janela do post ---- */
 let cur = -1, idx = 0, opener = null, vTimer = null;
