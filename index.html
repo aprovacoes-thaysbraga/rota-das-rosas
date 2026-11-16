@@ -75,6 +75,15 @@ summary.list-title .count{color:var(--muted);font-weight:400;letter-spacing:0;te
 .stats{display:flex;gap:22px;margin:8px 0 6px;font-size:13px;color:var(--muted)}
 .stats b{color:var(--ink);font-weight:600}
 .bio{margin:0;font-size:13px;max-width:44ch}
+.legend{max-width:780px;margin:0 auto 16px;border:1px solid var(--line);border-radius:14px;font-size:13px}
+.legend summary{cursor:pointer;padding:11px 14px;font-weight:600;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);list-style:none;display:flex;justify-content:space-between;align-items:center}
+.legend summary::-webkit-details-marker{display:none}
+.legend summary::after{content:"+";font-size:16px;font-weight:500}
+.legend[open] summary::after{content:"–"}
+.legend ul{margin:0;padding:0 14px 12px;list-style:none;display:grid;gap:8px}
+.legend li{display:flex;align-items:center;gap:10px;line-height:1.35}
+.legend .chip{flex:none;min-width:92px;text-align:center;padding:3px 9px;border-radius:12px;font-size:10px;font-weight:600;color:#fff}
+.legend .chip.vazio{color:var(--muted);border:1px dashed var(--line);background:transparent}
 .grid{max-width:780px;margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
 .cell{position:relative;aspect-ratio:4/5;overflow:hidden;background:var(--navy);border-radius:4px;min-width:0;min-height:0}
 .cell.placeholder{cursor:default;background:linear-gradient(160deg,var(--navy),#0c0c0f)}
@@ -236,6 +245,16 @@ summary.list-title .count{color:var(--muted);font-weight:400;letter-spacing:0;te
         <p class="bio" id="pBio"></p>
       </div>
     </header>
+    <details class="legend" id="legend" open>
+      <summary>Como ler as etiquetas dos posts</summary>
+      <ul>
+        <li><span class="chip vazio">sem etiqueta</span><span>Ainda sem resposta: não foi aprovado nem teve ajuste pedido.</span></li>
+        <li><span class="chip" style="background:var(--ok)">Aprovado</span><span>Post aprovado, pronto para agendar.</span></li>
+        <li><span class="chip" style="background:var(--fix)">Ajuste pedido</span><span>Foi pedido um ajuste. Ele volta corrigido para nova aprovação.</span></li>
+        <li><span class="chip" style="background:var(--sched)">18/11 · 19h30</span><span>Data e hora em roxo: o post está agendado para esse dia e horário.</span></li>
+        <li><span class="chip" style="background:var(--posted)">Postado</span><span>Em azul: o post já foi publicado no Instagram.</span></li>
+      </ul>
+    </details>
     <section class="grid" id="grid" aria-label="Feed"></section>
   </main>
 </div>
