@@ -167,6 +167,8 @@ summary.list-title .count{color:var(--muted);font-weight:400;letter-spacing:0;te
 .btn.no[aria-pressed="true"]{background:var(--fix);color:#fff}
 .btn.sched{border-color:var(--sched);color:var(--sched)}
 .btn.sched[aria-pressed="true"]{background:var(--sched);color:#fff}
+.btn.wait{border-color:var(--wait);color:var(--wait)}
+.btn.wait[aria-pressed="true"]{background:var(--wait);color:#fff}
 .btn.post{border-color:var(--posted);color:var(--posted)}
 .btn.post[aria-pressed="true"]{background:var(--posted);color:#fff}
 .agenda{margin-top:12px}
@@ -310,6 +312,7 @@ summary.list-title .count{color:var(--muted);font-weight:400;letter-spacing:0;te
         <div class="dec-btns">
           <button class="btn sched" id="bSched" aria-pressed="false">Agendado</button>
           <button class="btn post" id="bPost" aria-pressed="false">Postado</button>
+          <button class="btn wait" id="bWait" aria-pressed="false">Aguardando aprovação</button>
         </div>
         <div class="agenda">
           <label class="label" for="schedAt">Data e hora do agendamento</label>
@@ -445,12 +448,8 @@ let POSTADO = {}; // i -> timestamp
 let AGENDADO = {}; // i -> timestamp
 let pronto = false;
 
-/* post editado depois da última resposta do cliente volta a ficar "aguardando aprovação" */
-function aguardando(i){
-  const p = POSTS[i]; if(!p || !p.aguardando) return false;
-  const e = ESTADO[i];
-  return !(e && e.em && e.em > Date.parse(p.aguardando));
-}
+/* post marcado pela Thays (modo admin) como editado: espera nova aprovação. Fica em posts/{i} com status "aguardando"; a resposta do cliente sobrescreve. */
+function aguardando(i){ return !!(ESTADO[i] && ESTADO[i].status==="aguardando"); }
 function paintStatus(){
   POSTS.forEach((p,i)=>{
     if(p.placeholder) return;
@@ -459,7 +458,7 @@ function paintStatus(){
     document.querySelectorAll(`[data-i="${i}"] .st`).forEach(el=>{ el.dataset.s = s; el.dataset.t = t; });
   });
   const total = POSTS.filter(p=>!p.placeholder).length;
-  const v = POSTS.map((p,i)=>(p.placeholder||aguardando(i)) ? {} : (ESTADO[i]||{}));
+  const v = Object.values(ESTADO);
   const ok = v.filter(x=>x.status==="ok").length, aj = v.filter(x=>x.status==="ajuste").length;
   const nAg = POSTS.filter((p,i)=>!p.placeholder && aguardando(i)).length;
   const falta = total - ok - aj;
@@ -483,7 +482,7 @@ function showDec(i){
   $("#fixText").value = jaEnviado ? "" : (e.nota || "");
   $("#bSend").disabled = !$("#fixText").value.trim();
   $("#sentAdjustText").textContent = jaEnviado ? e.nota : "";
-  note(e.status ? "Resposta salva. Você pode mudar quando quiser." : "");
+  note(e.status && e.status!=="aguardando" ? "Resposta salva. Você pode mudar quando quiser." : "");
 }
 function note(t, err){ const n = $("#decNote"); n.textContent = t; n.classList.toggle("err", !!err); }
 /* passou o horário agendado: o post conta como postado (sem precisar marcar) */
@@ -497,6 +496,8 @@ function showPost(i){
   $("#mSched").textContent = publico ? "Agendado para "+dataHora(ag) : "";
   $("#bPost").setAttribute("aria-pressed", String(!!em));
   $("#bSched").setAttribute("aria-pressed", String(!!ag));
+  $("#bWait").setAttribute("aria-pressed", String(aguardando(i)));
+  $("#bWait").textContent = aguardando(i) ? "Aguardando aprovação ✓" : "Aguardando aprovação";
   $("#bPost").textContent = em ? "Postado ✓" : "Postado";
   $("#bSched").textContent = ag ? "Agendado ✓" : "Agendado";
   $("#postedAt").textContent = postadoAuto(i) ? "Postado automaticamente em "+dataHora(em)+", no horário agendado. Toque em Postado para desmarcar."
@@ -583,6 +584,23 @@ async function marcarPub(qual){
   paintStatus(); showPost(i);
   await gravarPub(i);
 }
+async function marcarAguardando(){
+  const i = cur;
+  const antes = ESTADO[i];
+  try{
+    if(aguardando(i)){
+      delete ESTADO[i]; paintStatus(); showPost(i); showDec(i);
+      await db.collection("posts").doc(String(i)).delete();
+    } else {
+      ESTADO[i] = {status:"aguardando", nota:"", em:Date.now()}; paintStatus(); showPost(i); showDec(i);
+      await db.collection("posts").doc(String(i)).set({status:"aguardando", nota:"", por:MEU_ID, em:Date.now()});
+    }
+  }catch(e){
+    if(antes) ESTADO[i]=antes; else delete ESTADO[i];
+    paintStatus(); showPost(i); showDec(i);
+    if(i===cur) $("#postedAt").textContent = "Não deu para salvar agora. Tente de novo.";
+  }
+}
 async function salvarHorario(){
   const i = cur, ms = lerInput();
   if(!ms) return;
@@ -599,6 +617,7 @@ async function gravarPub(i){
   }catch(e){ if(i===cur) $("#postedAt").textContent = "Não deu para salvar agora. Tente de novo."; }
 }
 $("#bPost").addEventListener("click", ()=>marcarPub("postado"));
+$("#bWait").addEventListener("click", marcarAguardando);
 $("#bSched").addEventListener("click", ()=>marcarPub("agendado"));
 $("#schedAt").addEventListener("input", ()=>{
   const ms = lerInput();
