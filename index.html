@@ -12,7 +12,7 @@
 :root{
   --bg:#F9F6F2; --side:#EFE6D8; --card:#FFFFFF; --ink:#1A3433; --muted:#8A8171; --line:#E3D9C6;
   --navy:#1A6664; --rose:#D6AA6E; --shadow:rgba(20,30,28,.16);
-  --ok:#2F7D5B; --fix:#B4532A; --posted:#2D5F8B; --sched:#7A5A9E;
+  --ok:#2F7D5B; --fix:#B4532A; --posted:#2D5F8B; --sched:#7A5A9E; --wait:#B08A2E;
   --serif:'Fraunces',Georgia,'Times New Roman',serif;
   --sans:'Mulish',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
 }
@@ -105,6 +105,8 @@ summary.list-title .count{color:var(--muted);font-weight:400;letter-spacing:0;te
 .st[data-s="ajuste"]{background:var(--fix)}
 .st[data-s="agendado"]{background:var(--sched)}
 .st[data-s="postado"]{background:var(--posted)}
+.st[data-s="aguardando"]{background:var(--wait)}
+.st[data-s="aguardando"]::after{content:"Aguardando aprovação"}
 .st[data-s="ok"]::after{content:"Aprovado"}
 .st[data-s="ajuste"]::after{content:"Ajuste pedido"}
 .st[data-s="agendado"]::after{content:"Agendado"}
@@ -251,6 +253,7 @@ summary.list-title .count{color:var(--muted);font-weight:400;letter-spacing:0;te
         <li><span class="chip vazio">sem etiqueta</span><span>Ainda sem resposta: não foi aprovado nem teve ajuste pedido.</span></li>
         <li><span class="chip" style="background:var(--ok)">Aprovado</span><span>Post aprovado, pronto para agendar.</span></li>
         <li><span class="chip" style="background:var(--fix)">Ajuste pedido</span><span>Foi pedido um ajuste. Ele volta corrigido para nova aprovação.</span></li>
+        <li><span class="chip" style="background:var(--wait)">Aguardando</span><span>Em dourado: o post foi editado e espera a sua aprovação de novo.</span></li>
         <li><span class="chip" style="background:var(--sched)">18/11 · 19h30</span><span>Data e hora em roxo: o post está agendado para esse dia e horário.</span></li>
         <li><span class="chip" style="background:var(--posted)">Postado</span><span>Em azul: o post já foi publicado no Instagram.</span></li>
       </ul>
@@ -442,28 +445,35 @@ let POSTADO = {}; // i -> timestamp
 let AGENDADO = {}; // i -> timestamp
 let pronto = false;
 
+/* post editado depois da última resposta do cliente volta a ficar "aguardando aprovação" */
+function aguardando(i){
+  const p = POSTS[i]; if(!p || !p.aguardando) return false;
+  const e = ESTADO[i];
+  return !(e && e.em && e.em > Date.parse(p.aguardando));
+}
 function paintStatus(){
   POSTS.forEach((p,i)=>{
     if(p.placeholder) return;
-    const s = postadoEm(i) ? "postado" : agendadoAtivo(i) ? "agendado" : ((ESTADO[i] && ESTADO[i].status) || "");
+    const s = postadoEm(i) ? "postado" : agendadoAtivo(i) ? "agendado" : aguardando(i) ? "aguardando" : ((ESTADO[i] && ESTADO[i].status) || "");
     const t = s==="agendado" && horaDefinida(AGENDADO[i]) ? dataHoraCurta(AGENDADO[i]) : "";
     document.querySelectorAll(`[data-i="${i}"] .st`).forEach(el=>{ el.dataset.s = s; el.dataset.t = t; });
   });
   const total = POSTS.filter(p=>!p.placeholder).length;
-  const v = Object.values(ESTADO);
+  const v = POSTS.map((p,i)=>(p.placeholder||aguardando(i)) ? {} : (ESTADO[i]||{}));
   const ok = v.filter(x=>x.status==="ok").length, aj = v.filter(x=>x.status==="ajuste").length;
+  const nAg = POSTS.filter((p,i)=>!p.placeholder && aguardando(i)).length;
   const falta = total - ok - aj;
   const np = POSTS.filter((p,i)=>!p.placeholder && postadoEm(i)).length;
   const na = POSTS.filter((p,i)=>!p.placeholder && agendadoAtivo(i)).length;
   $("#summary").textContent = pronto
-    ? (falta===0 ? "Tudo respondido: "+ok+" aprovados, "+aj+" com ajuste." : ok+" aprovados · "+aj+" com ajuste · "+falta+" sem resposta")
+    ? (falta===0 ? "Tudo respondido: "+ok+" aprovados, "+aj+" com ajuste." : ok+" aprovados · "+aj+" com ajuste · "+falta+" sem resposta"+(nAg?" ("+nAg+" aguardando nova aprovação)":""))
       + " · "+na+" agendados · "+np+" de "+total+" postados"
     : "Carregando…";
 }
 
 let editAjuste = false;
 function showDec(i){
-  const e = ESTADO[i] || {};
+  const e = aguardando(i) ? {} : (ESTADO[i] || {});
   $("#bOk").setAttribute("aria-pressed", String(e.status==="ok"));
   $("#bNo").setAttribute("aria-pressed", String(e.status==="ajuste"));
   $("#fix").hidden = e.status!=="ajuste";
@@ -518,7 +528,7 @@ function lerInput(){
 }
 
 async function salvarDecisao(i, status, nota){
-  ESTADO[i] = {status, nota: nota||""};
+  ESTADO[i] = {status, nota: nota||"", em: Date.now()};
   paintStatus(); showDec(i); note("Salvando...");
   try{
     await db.collection("posts").doc(String(i)).set({status, nota: nota||"", por: MEU_ID, em: Date.now()});
@@ -755,7 +765,7 @@ function iniciar(){
 
   db.collection("posts").onSnapshot(snap=>{
     ESTADO = {};
-    snap.docs.forEach(d=>{ if(d.exists){ const data=d.data(); if(data) ESTADO[d.id]={status:data.status,nota:data.nota}; } });
+    snap.docs.forEach(d=>{ if(d.exists){ const data=d.data(); if(data) ESTADO[d.id]={status:data.status,nota:data.nota,em:data.em}; } });
     pronto = true;
     paintStatus(); if(cur>=0) showDec(cur);
   }, e=>{ pronto = true; paintStatus(); });
